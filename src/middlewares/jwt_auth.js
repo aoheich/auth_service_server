@@ -30,7 +30,7 @@ export const token_auth = async (req, res, next) => {
         })
 
         if (!db_user) {
-            return res.status(401).json({ msg: "User Not Found" })
+            return res.status(401).json({ msg: "Invalid Credentials" })
         }
 
 
@@ -42,6 +42,7 @@ export const token_auth = async (req, res, next) => {
         next()
 
     } catch (error) {
+        console.error(error)
        return res.status(401).json({ msg: "Invalid or Expired Token" })
     }
 } 

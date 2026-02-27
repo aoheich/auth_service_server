@@ -3,14 +3,12 @@ import { PrismaClient } from "../../generated/prisma/client.ts"
 import jwt from "jsonwebtoken"
 import crypto from "crypto"
 
-
 const prisma = new PrismaClient()
 const pepper = process.env.PEPPER
 const access_secret = process.env.ACCESS_T_SECRET
 const refresh_secret = process.env.REFRESH_T_SECRET
 
-export const session_signup = async (req, res, next) => {
-
+export const session_signup = async (req, res) => {
     try {
 
         const { email, password } = req.body
@@ -56,19 +54,22 @@ export const session_signup = async (req, res, next) => {
         res.status(201).json({ msg: "User created Successfully" })
 
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const session_login = async (req, res, next) => {
+export const session_login = async (req, res) => {
     try {
         const { email, password } = req.body
 
-        const user = await prisma.user.findFirstOrThrow({
-            where: {
-                email: email
-            }
+        const user = await prisma.user.findFirst({
+            where: { email: email }
         })
+
+        if (!user) {
+            return res.status(401).json({ msg: "Invalid Credentials" })
+        }
 
         const result = await bcrypt.compare(password + pepper, user.password)
 
@@ -102,31 +103,32 @@ export const session_login = async (req, res, next) => {
             data: { user_id: user.id }
         })
 
-      
         res.status(200).json({ msg: "Login Successfull" })
 
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const session_logout = async (req, res, next) => {
+export const session_logout = async (req, res) => {
     try {
         req.session.destroy((err) => {
             if (err) {
-                throw err
+                console.error(err)
+                return res.status(500).json({ msg: "Internal Server Error" })
             }
 
             res.clearCookie("connect.sid", { httpOnly: true, secure: false })
             res.status(200).json({ msg: "Logout Successful" })
         })
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const jwt_signup = async (req, res, next) => {
-
+export const jwt_signup = async (req, res) => {
     try {
         const { email, password } = req.body
 
@@ -143,6 +145,7 @@ export const jwt_signup = async (req, res, next) => {
         })
 
         const token_id = crypto.randomUUID()
+
         const payload = {
             user_id: user.id,
             role: user.role,
@@ -151,7 +154,6 @@ export const jwt_signup = async (req, res, next) => {
         }
 
         const access_token = jwt.sign(payload, access_secret, { expiresIn: "15m" })
-
         const refresh_token = jwt.sign(payload, refresh_secret, { expiresIn: "1d" })
 
         const hashed_token = await bcrypt.hash(refresh_token, 10)
@@ -170,19 +172,22 @@ export const jwt_signup = async (req, res, next) => {
         res.status(201).json({ msg: "User created Successfully", access_token: access_token })
 
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const jwt_login = async (req, res, next) => {
+export const jwt_login = async (req, res) => {
     try {
         const { email, password } = req.body
 
-        const user = await prisma.user.findFirstOrThrow({
-            where: {
-                email: email
-            }
+        const user = await prisma.user.findFirst({
+            where: { email: email }
         })
+
+        if (!user) {
+            return res.status(401).json({ msg: "Invalid Credentials" })
+        }
 
         const result = await bcrypt.compare(password + pepper, user.password)
 
@@ -200,7 +205,6 @@ export const jwt_login = async (req, res, next) => {
         }
 
         const access_token = jwt.sign(payload, access_secret, { expiresIn: "15m" })
-
         const refresh_token = jwt.sign(payload, refresh_secret, { expiresIn: "1d" })
 
         const hashed_token = await bcrypt.hash(refresh_token, 10)
@@ -216,15 +220,15 @@ export const jwt_login = async (req, res, next) => {
 
         res.cookie("refresh_token", refresh_token, { maxAge: 1000 * 60 * 60 * 24, httpOnly: true, secure: false })
 
-
         res.status(200).json({ msg: "Login Successfull", access_token: access_token })
 
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const jwt_logout = async (req, res, next) => {
+export const jwt_logout = async (req, res) => {
     try {
         const refresh_token = req.cookies.refresh_token
 
@@ -234,29 +238,33 @@ export const jwt_logout = async (req, res, next) => {
 
         const payload = jwt.verify(refresh_token, refresh_secret)
 
-        const db_token = await prisma.tokens.findFirstOrThrow({
+        const db_token = await prisma.tokens.findFirst({
             where: {
                 id: payload.id,
                 revoked: false,
                 expires_at: { gt: new Date() }
             }
         })
+
+        if (!db_token) {
+            return res.status(401).json({ msg: "Invalid Token" })
+        }
 
         await prisma.tokens.delete({
-            where: {
-                id: db_token.id
-            }
+            where: { id: db_token.id }
         })
 
-        res.clearCookie("refresh_token", { httpOnly: true, secure: true })
+        res.clearCookie("refresh_token", { httpOnly: true, secure: false })
 
         res.status(200).json("Logout Successful")
+
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
 
-export const token_refresh = async (req, res, next) => {
+export const token_refresh = async (req, res) => {
     try {
         const refresh_token = req.cookies.refresh_token
 
@@ -266,7 +274,7 @@ export const token_refresh = async (req, res, next) => {
 
         const payload = jwt.verify(refresh_token, refresh_secret)
 
-        const db_token = await prisma.tokens.findFirstOrThrow({
+        const db_token = await prisma.tokens.findFirst({
             where: {
                 id: payload.id,
                 revoked: false,
@@ -274,12 +282,13 @@ export const token_refresh = async (req, res, next) => {
             }
         })
 
+        if (!db_token) {
+            return res.status(401).json({ msg: "Invalid Token" })
+        }
+
         await prisma.tokens.update({
-            where: {
-                id: db_token.id
-            }, data: {
-                revoked: true
-            }
+            where: { id: db_token.id },
+            data: { revoked: true }
         })
 
         const token_id = crypto.randomUUID()
@@ -292,7 +301,6 @@ export const token_refresh = async (req, res, next) => {
         }
 
         const new_access_token = jwt.sign(new_payload, access_secret, { expiresIn: "15m" })
-
         const new_refresh_token = jwt.sign(new_payload, refresh_secret, { expiresIn: "1d" })
 
         const hashed_token = await bcrypt.hash(new_refresh_token, 10)
@@ -308,12 +316,10 @@ export const token_refresh = async (req, res, next) => {
 
         res.cookie("refresh_token", new_refresh_token, { maxAge: 1000 * 60 * 60 * 24, httpOnly: true, secure: true })
 
-
         res.status(200).json({ msg: "Refresh Successfull", access_token: new_access_token })
 
-
     } catch (error) {
-        next(error)
+        console.error(error)
+        return res.status(500).json({ msg: "Internal Server Error" })
     }
 }
-
